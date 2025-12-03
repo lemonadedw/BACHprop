@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# System
+.DS_Store
+
+# Project specific
+PianoFingeringDataset_v1.2/
+best_model.pth
+*.mid
