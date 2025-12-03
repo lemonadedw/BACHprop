@@ -5,11 +5,15 @@ from tensorflow.keras import layers, models
 def create_model(input_shape=(50, 4)):
     model = models.Sequential()
 
-    # Bidirectional LSTM
+    # Bidirectional LSTM - Layer 1 (High Capacity)
     # return_sequences=True because we want a prediction for every note in the sequence
     model.add(layers.Bidirectional(layers.LSTM(
-        64, return_sequences=True), input_shape=input_shape))
+        128, return_sequences=True), input_shape=input_shape))
+    model.add(layers.Dropout(0.3))  # Regularization
+
+    # Bidirectional LSTM - Layer 2 (Compression)
     model.add(layers.Bidirectional(layers.LSTM(64, return_sequences=True)))
+    model.add(layers.Dropout(0.3))  # Regularization
 
     # Dense layer for classification
     # TimeDistributed applies the Dense layer to every temporal slice of the input
