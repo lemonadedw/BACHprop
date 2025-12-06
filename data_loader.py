@@ -10,11 +10,12 @@ class PIGDataLoader:
         self.file_paths = sorted(glob.glob(os.path.join(data_dir, "*_fingering.txt")))
         self.data = []
         self.labels = []
+        self.file_indices = []  # Track which file each sequence came from
         self._load_data()
 
     def _load_data(self):
         print(f"Loading data from {len(self.file_paths)} files...")
-        for file_path in self.file_paths:
+        for file_idx, file_path in enumerate(self.file_paths):
             try:
                 notes, hands = self._parse_file(file_path)
                 if len(notes) > self.sequence_length:
@@ -24,16 +25,19 @@ class PIGDataLoader:
                         seq_hands = hands[i:i+self.sequence_length]
                         self.data.append(seq_notes)
                         self.labels.append(seq_hands)
+                        self.file_indices.append(file_idx)  # Track which file this came from
             except Exception as e:
                 print(f"Error loading {file_path}: {e}")
         
         self.data = np.array(self.data, dtype=np.float32)
-        self.labels = np.array(self.labels, dtype=np.float32) # Keras likes float labels for BCE usually, or int
+        self.labels = np.array(self.labels, dtype=np.float32)
+        self.file_indices = np.array(self.file_indices, dtype=np.int32)
+        
         # Expand dims for labels to be (batch, seq, 1) if needed, or just (batch, seq)
         # For TimeDistributed(Dense(1)), we usually want (batch, seq, 1)
         self.labels = np.expand_dims(self.labels, axis=-1)
         
-        print(f"Created {len(self.data)} sequences.")
+        print(f"Created {len(self.data)} sequences from {len(self.file_paths)} files.")
         print(f"Data shape: {self.data.shape}")
         print(f"Labels shape: {self.labels.shape}")
 
@@ -86,6 +90,10 @@ class PIGDataLoader:
 
     def get_data(self):
         return self.data, self.labels
+    
+    def get_data_with_file_indices(self):
+        """Return data with file indices to enable file-level splitting"""
+        return self.data, self.labels, self.file_indices, len(self.file_paths)
 
 if __name__ == "__main__":
     # Test the loader

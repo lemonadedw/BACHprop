@@ -2,7 +2,10 @@
 __pycache__/
 *.pyc
 .venv/
-
+venv
+webscraper/node_modules
+webscraper/downloads
+webscraper/puppeteer-profile
 # System
 .DS_Store
 
