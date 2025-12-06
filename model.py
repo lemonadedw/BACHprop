@@ -46,9 +46,12 @@ def create_unidirectional_prediction_model(input_shape=(50, 4)):
     """
     Multi-task LSTM model that predicts:
     1. Left/Right hand for current note (output[0])
-    2. Next note's pitch, 0-1 normalized (output[1])
+    2. Next note's pitch as one-hot over 88 piano keys (output[1:89])
     
-    Uses Sequential with Dense(2) output layer.
+    Uses Sequential with Dense(89) output layer.
+    Output shape: (batch, seq, 89)
+    - output[:, :, 0] = hand classification (sigmoid: 0=right, 1=left)
+    - output[:, :, 1:89] = next pitch one-hot (softmax over 88 keys)
     """
     model = models.Sequential()
     
@@ -58,10 +61,11 @@ def create_unidirectional_prediction_model(input_shape=(50, 4)):
     model.add(layers.LSTM(128, return_sequences=True))
     model.add(layers.Dropout(0.3))
     
-    # Output layer with 2 units:
-    # output[:, :, 0] = hand classification (0=right, 1=left)
-    # output[:, :, 1] = next pitch prediction (0-1 normalized)
-    model.add(layers.TimeDistributed(layers.Dense(2, activation='sigmoid')))
+    # Output layer with 89 units:
+    # output[:, :, 0] = hand classification (sigmoid)
+    # output[:, :, 1:89] = next pitch one-hot (will apply softmax separately)
+    # Note: Using linear activation here, will apply sigmoid/softmax in custom activation
+    model.add(layers.TimeDistributed(layers.Dense(89)))
     
     return model
 
@@ -73,7 +77,7 @@ def create_transformer_prediction_model(input_shape=(50, 4),
     """
     Transformer-based multi-task model that predicts:
     1. Left/Right hand for current note (output[0])
-    2. Next note's pitch, 0-1 normalized (output[1])
+    2. Next note's pitch as one-hot over 88 piano keys (output[1:89])
     
     Uses multi-head self-attention instead of LSTM.
     
@@ -116,10 +120,11 @@ def create_transformer_prediction_model(input_shape=(50, 4),
         ffn = layers.Dropout(dropout_rate)(ffn)
         x = layers.LayerNormalization(epsilon=1e-6)(x + ffn)
     
-    # Output layer with 2 units:
-    # output[:, :, 0] = hand classification (0=right, 1=left)
-    # output[:, :, 1] = next pitch prediction (0-1 normalized)
-    outputs = layers.Dense(2, activation='sigmoid')(x)
+    # Output layer with 89 units:
+    # output[:, :, 0] = hand classification (sigmoid)
+    # output[:, :, 1:89] = next pitch one-hot (softmax)
+    # Using linear activation, will apply sigmoid/softmax separately
+    outputs = layers.Dense(89)(x)
     
     model = models.Model(inputs=inputs, outputs=outputs)
     return model

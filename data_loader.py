@@ -43,25 +43,43 @@ class PIGDataLoader:
     
     def get_multitask_labels(self):
         """
-        Create multi-task labels: [hand, next_pitch]
-        Returns labels of shape (batch, seq, 2) where:
+        Create multi-task labels: [hand, next_pitch_one_hot]
+        Returns labels of shape (batch, seq, 1 + 88) = (batch, seq, 89) where:
         - labels[:, :, 0] = hand classification (0=right, 1=left)
-        - labels[:, :, 1] = next note's pitch (0-1 normalized)
+        - labels[:, :, 1:89] = one-hot encoding of next note's pitch (88 piano keys)
+        
+        Piano keys map from MIDI note 21 (A0) to MIDI note 108 (C8).
+        One-hot index = MIDI note - 21
         """
         batch_size, seq_len, _ = self.labels.shape
-        multitask_labels = np.zeros((batch_size, seq_len, 2), dtype=np.float32)
+        multitask_labels = np.zeros((batch_size, seq_len, 1 + 88), dtype=np.float32)
         
         # Hand labels (already have these)
         multitask_labels[:, :, 0] = self.labels[:, :, 0]
         
-        # Next pitch labels - extract from the data (pitch is first feature)
+        # Next pitch labels - one-hot encoding of 88 piano keys
         # For each note at position i, the target is the pitch of note at i+1
         for i in range(batch_size):
             for j in range(seq_len - 1):
-                # Next pitch is already normalized in data (pitch / 128.0)
-                multitask_labels[i, j, 1] = self.data[i, j+1, 0]
-            # For last note in sequence, use same pitch as target (or could use 0)
-            multitask_labels[i, seq_len-1, 1] = self.data[i, seq_len-1, 0]
+                # Get next note's MIDI pitch (denormalize from 0-1 range)
+                next_pitch_normalized = self.data[i, j+1, 0]
+                next_pitch_midi = int(np.round(next_pitch_normalized * 128.0))
+                
+                # Clip to valid piano range (MIDI 21-108)
+                next_pitch_midi = np.clip(next_pitch_midi, 21, 108)
+                
+                # Convert to one-hot index (0-87)
+                one_hot_index = next_pitch_midi - 21
+                
+                # Set one-hot encoding (indices 1-88 in the label vector)
+                multitask_labels[i, j, 1 + one_hot_index] = 1.0
+            
+            # For last note in sequence, use same pitch as target
+            last_pitch_normalized = self.data[i, seq_len-1, 0]
+            last_pitch_midi = int(np.round(last_pitch_normalized * 128.0))
+            last_pitch_midi = np.clip(last_pitch_midi, 21, 108)
+            one_hot_index = last_pitch_midi - 21
+            multitask_labels[i, seq_len-1, 1 + one_hot_index] = 1.0
         
         return multitask_labels
 

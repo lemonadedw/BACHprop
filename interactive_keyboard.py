@@ -93,8 +93,8 @@ class InteractivePianoApp:
         pygame.init()
         
         # Screen settings
-        self.width = 1200
-        self.height = 800
+        self.width = 1600
+        self.height = 900
         self.screen = pygame.display.set_mode((self.width, self.height))
         pygame.display.set_caption("Interactive Piano Predictor 🎹")
         
@@ -113,17 +113,21 @@ class InteractivePianoApp:
         self.font_medium = pygame.font.Font(None, 32)
         self.font_small = pygame.font.Font(None, 24)
         
-        # Piano keyboard settings (2 octaves: C4 to C6)
-        self.start_note = 60  # C4
-        self.num_white_keys = 15  # 2 octaves
-        self.white_key_width = 60
+        # Piano keyboard settings (5 octaves: C3 to C8)
+        self.start_note = 48  # C3
+        self.num_octaves = 5
+        self.num_white_keys = self.num_octaves * 7 + 1  # 36 white keys (5 octaves + C)
+        self.white_key_width = 40
         self.white_key_height = 200
-        self.black_key_width = 35
+        self.black_key_width = 25
         self.black_key_height = 120
         
         # Keyboard offset
-        self.keyboard_x = 100
-        self.keyboard_y = 400
+        self.keyboard_x = 50
+        self.keyboard_y = 450
+        
+        # Key rectangles for mouse detection
+        self.key_rects = {}  # midi_note -> pygame.Rect
         
         # Note patterns (which notes are black keys)
         self.black_key_pattern = [1, 3, 6, 8, 10]  # C#, D#, F#, G#, A#
@@ -167,7 +171,7 @@ class InteractivePianoApp:
                 custom_objects={
                     'multitask_loss': lambda y_true, y_pred: tf.reduce_mean(y_pred),
                     'hand_accuracy': lambda y_true, y_pred: tf.reduce_mean(y_pred),
-                    'pitch_mae': lambda y_true, y_pred: tf.reduce_mean(y_pred)
+                    'pitch_accuracy': lambda y_true, y_pred: tf.reduce_mean(y_pred)
                 }
             )
             print("Model loaded successfully!")
@@ -216,20 +220,25 @@ class InteractivePianoApp:
         return pygame.Rect(x, y, width, height)
     
     def draw_piano_keyboard(self, pressed_notes=set()):
-        """Draw the entire piano keyboard"""
+        """Draw the entire piano keyboard and store key rectangles for mouse detection"""
+        self.key_rects = {}  # Clear previous rectangles
+        
         # Draw white keys first
-        for i in range(self.num_white_keys):
+        max_note = self.start_note + self.num_octaves * 12
+        for i in range(max_note - self.start_note + 1):
             midi_note = self.start_note + i
             if midi_note % 12 not in self.black_key_pattern:
                 is_pressed = midi_note in pressed_notes
-                self.draw_piano_key(midi_note, pressed=is_pressed)
+                rect = self.draw_piano_key(midi_note, pressed=is_pressed)
+                self.key_rects[midi_note] = rect
         
         # Draw black keys on top
-        for i in range(self.num_white_keys):
+        for i in range(max_note - self.start_note + 1):
             midi_note = self.start_note + i
             if midi_note % 12 in self.black_key_pattern:
                 is_pressed = midi_note in pressed_notes
-                self.draw_piano_key(midi_note, pressed=is_pressed)
+                rect = self.draw_piano_key(midi_note, pressed=is_pressed)
+                self.key_rects[midi_note] = rect
     
     def draw_note_display(self):
         """Draw the recorded and predicted notes"""
@@ -290,7 +299,7 @@ class InteractivePianoApp:
         # Instructions
         instructions = [
             "1. Press SPACE to start recording",
-            "2. Play notes with A-L keys (W,E,T,Y,U,O for black keys)",
+            "2. Play notes with A-L keys OR click piano keys with mouse",
             "3. Press SPACE to stop recording",
             "4. Press ENTER to predict next notes",
             "5. Press P to play back everything!",
@@ -359,10 +368,21 @@ class InteractivePianoApp:
             prediction = self.model.predict(input_seq, verbose=0)
             
             # Get prediction for last timestep
+            # prediction shape: (1, seq_len, 89)
+            # [:, :, 0] = hand classification
+            # [:, :, 1:89] = pitch one-hot (88 classes)
             last_pred = prediction[0, -1, :]
-            next_pitch_normalized = last_pred[1]
             
-            predicted_pitches.append(int(next_pitch_normalized * 128))
+            # Get pitch prediction (indices 1:89 are the one-hot encoding)
+            pitch_logits = last_pred[1:]  # 88 values
+            predicted_pitch_index = np.argmax(pitch_logits)  # 0-87
+            
+            # Convert to MIDI note (piano range: 21-108)
+            predicted_midi = predicted_pitch_index + 21
+            predicted_pitches.append(predicted_midi)
+            
+            # Normalize pitch for next iteration
+            next_pitch_normalized = predicted_midi / 128.0
             
             # Update sequence for next prediction
             next_note = np.array([
@@ -424,11 +444,28 @@ class InteractivePianoApp:
         self.is_playing = False
         print("Playback complete!")
     
+    def get_clicked_key(self, mouse_pos):
+        """Get the MIDI note of the key clicked at mouse position"""
+        # Check black keys first (they're on top)
+        for midi_note, rect in self.key_rects.items():
+            if midi_note % 12 in self.black_key_pattern:
+                if rect.collidepoint(mouse_pos):
+                    return midi_note
+        
+        # Then check white keys
+        for midi_note, rect in self.key_rects.items():
+            if midi_note % 12 not in self.black_key_pattern:
+                if rect.collidepoint(mouse_pos):
+                    return midi_note
+        
+        return None
+    
     def run(self):
         """Main application loop"""
         clock = pygame.time.Clock()
         running = True
         pressed_keys = set()
+        mouse_pressed_key = None
         
         print("\n🎹 Interactive Piano Predictor")
         print("All instructions are shown in the GUI window!")
@@ -478,6 +515,21 @@ class InteractivePianoApp:
                     if event.key in self.key_mapping:
                         midi_note = self.key_mapping[event.key]
                         pressed_keys.discard(midi_note)
+                
+                elif event.type == pygame.MOUSEBUTTONDOWN and not self.is_playing:
+                    # Mouse click on piano key
+                    mouse_pos = pygame.mouse.get_pos()
+                    clicked_key = self.get_clicked_key(mouse_pos)
+                    if clicked_key is not None:
+                        mouse_pressed_key = clicked_key
+                        pressed_keys.add(clicked_key)
+                        self.play_note(clicked_key)
+                
+                elif event.type == pygame.MOUSEBUTTONUP:
+                    # Release mouse key
+                    if mouse_pressed_key is not None:
+                        pressed_keys.discard(mouse_pressed_key)
+                        mouse_pressed_key = None
             
             # Draw everything
             self.screen.fill(self.WHITE)

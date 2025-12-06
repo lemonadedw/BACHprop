@@ -44,7 +44,7 @@ def load_midi_notes(midi_path, num_notes=20):
     return np.array(features, dtype=np.float32)
 
 def predict_sequence(model, initial_notes, num_predictions=30, sequence_length=50):
-    """Predict future notes"""
+    """Predict future notes using one-hot pitch prediction"""
     num_initial = len(initial_notes)
     
     if num_initial < sequence_length:
@@ -59,10 +59,22 @@ def predict_sequence(model, initial_notes, num_predictions=30, sequence_length=5
     for i in range(num_predictions):
         input_seq = np.array([sequence])
         prediction = model.predict(input_seq, verbose=0)
-        last_pred = prediction[0, -1, :]
-        next_pitch_normalized = last_pred[1]
         
-        predicted_pitches.append(next_pitch_normalized * 128.0)
+        # prediction shape: (1, seq_len, 89)
+        # [:, :, 0] = hand classification
+        # [:, :, 1:89] = pitch one-hot (88 piano keys)
+        last_pred = prediction[0, -1, :]
+        
+        # Get pitch prediction (indices 1:89 are the one-hot encoding)
+        pitch_logits = last_pred[1:]  # 88 values
+        predicted_pitch_index = np.argmax(pitch_logits)  # 0-87
+        
+        # Convert to MIDI note (piano range: 21-108)
+        predicted_midi = predicted_pitch_index + 21
+        predicted_pitches.append(float(predicted_midi))
+        
+        # Normalize pitch for next iteration
+        next_pitch_normalized = predicted_midi / 128.0
         
         next_note = np.array([next_pitch_normalized, 0.5, 0.25, 0.7], dtype=np.float32)
         all_notes.append(next_note)
@@ -80,6 +92,7 @@ def visualize_and_save(result, midi_path, model):
     num_initial = result['num_initial']
     
     # Get hand predictions
+    # Apply sigmoid to hand predictions (index 0)
     hands = []
     for i in range(0, len(all_notes), 50):
         chunk = all_notes[i:i+50]
@@ -87,7 +100,9 @@ def visualize_and_save(result, midi_path, model):
             padding = np.zeros((50 - len(chunk), 4), dtype=np.float32)
             chunk = np.vstack([padding, chunk])
         pred = model.predict(np.array([chunk]), verbose=0)
-        chunk_hands = pred[0, :, 0]
+        # Apply sigmoid to hand logits (index 0)
+        chunk_hands_logits = pred[0, :, 0]
+        chunk_hands = 1.0 / (1.0 + np.exp(-chunk_hands_logits))  # sigmoid
         if len(all_notes[i:i+50]) < 50:
             chunk_hands = chunk_hands[-(len(all_notes[i:i+50])):]
         hands.extend(chunk_hands)
@@ -183,7 +198,7 @@ def quick_predict(midi_path, num_initial=20, num_predictions=30, model_path=None
         custom_objects={
             'multitask_loss': lambda y_true, y_pred: tf.reduce_mean(y_pred),
             'hand_accuracy': lambda y_true, y_pred: tf.reduce_mean(y_pred),
-            'pitch_mae': lambda y_true, y_pred: tf.reduce_mean(y_pred)
+            'pitch_accuracy': lambda y_true, y_pred: tf.reduce_mean(y_pred)
         }
     )
     

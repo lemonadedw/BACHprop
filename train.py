@@ -8,31 +8,55 @@ def multitask_loss(y_true, y_pred):
     """
     Custom loss for multi-task learning:
     - Binary cross-entropy for hand classification (output[:, :, 0])
-    - Mean squared error for next pitch prediction (output[:, :, 1])
+    - Categorical cross-entropy for next pitch prediction (output[:, :, 1:89])
+    
+    y_true shape: (batch, seq, 89)
+    y_pred shape: (batch, seq, 89)
     """
     # Hand classification loss (binary cross-entropy)
-    hand_loss = tf.keras.backend.binary_crossentropy(y_true[:, :, 0], y_pred[:, :, 0])
+    # Apply sigmoid to hand predictions
+    hand_pred_sigmoid = tf.nn.sigmoid(y_pred[:, :, 0])
+    hand_loss = tf.keras.backend.binary_crossentropy(y_true[:, :, 0], hand_pred_sigmoid)
     
-    # Pitch prediction loss (MSE)
-    pitch_loss = tf.keras.backend.mean(tf.keras.backend.square(y_true[:, :, 1] - y_pred[:, :, 1]))
+    # Pitch prediction loss (categorical cross-entropy)
+    # Apply softmax to pitch predictions (indices 1:89)
+    pitch_pred_logits = y_pred[:, :, 1:]  # Shape: (batch, seq, 88)
+    pitch_true_onehot = y_true[:, :, 1:]  # Shape: (batch, seq, 88)
+    
+    # Categorical cross-entropy with logits
+    pitch_pred_softmax = tf.nn.softmax(pitch_pred_logits, axis=-1)
+    # Clip to avoid log(0)
+    pitch_pred_softmax = tf.clip_by_value(pitch_pred_softmax, 1e-7, 1.0)
+    pitch_loss = -tf.reduce_sum(pitch_true_onehot * tf.math.log(pitch_pred_softmax), axis=-1)
     
     # Combined loss with weights
     # You can adjust these weights to prioritize one task over the other
     hand_weight = 1.0
-    pitch_weight = 0.75
+    pitch_weight = 1.0
     
-    total_loss = hand_weight * tf.keras.backend.mean(hand_loss) + pitch_weight * pitch_loss
+    total_loss = hand_weight * tf.keras.backend.mean(hand_loss) + pitch_weight * tf.keras.backend.mean(pitch_loss)
     return total_loss
 
 def hand_accuracy(y_true, y_pred):
     """Metric for hand classification accuracy"""
-    hand_pred_binary = tf.keras.backend.cast(y_pred[:, :, 0] > 0.5, tf.float32)
+    hand_pred_sigmoid = tf.nn.sigmoid(y_pred[:, :, 0])
+    hand_pred_binary = tf.keras.backend.cast(hand_pred_sigmoid > 0.5, tf.float32)
     hand_true = y_true[:, :, 0]
     return tf.keras.backend.mean(tf.keras.backend.cast(tf.keras.backend.equal(hand_true, hand_pred_binary), tf.float32))
 
-def pitch_mae(y_true, y_pred):
-    """Metric for pitch prediction mean absolute error"""
-    return tf.keras.backend.mean(tf.keras.backend.abs(y_true[:, :, 1] - y_pred[:, :, 1]))
+def pitch_accuracy(y_true, y_pred):
+    """Metric for pitch prediction accuracy (top-1 accuracy)"""
+    # Get predicted pitch class (argmax of softmax over 88 keys)
+    pitch_pred_logits = y_pred[:, :, 1:]  # Shape: (batch, seq, 88)
+    pitch_pred_class = tf.argmax(pitch_pred_logits, axis=-1)  # Shape: (batch, seq)
+    
+    # Get true pitch class (argmax of one-hot)
+    pitch_true_onehot = y_true[:, :, 1:]  # Shape: (batch, seq, 88)
+    pitch_true_class = tf.argmax(pitch_true_onehot, axis=-1)  # Shape: (batch, seq)
+    
+    # Calculate accuracy
+    correct = tf.keras.backend.cast(tf.keras.backend.equal(pitch_true_class, pitch_pred_class), tf.float32)
+    return tf.keras.backend.mean(correct)
 
 def train():
     # Hyperparameters
@@ -163,7 +187,7 @@ def train_multitask(use_transformer=False):
     print(f"Combined data shape: {X.shape}")
     print(f"Combined multitask labels shape: {y_multitask.shape}")
     print(f"  - labels[:, :, 0] = hand classification")
-    print(f"  - labels[:, :, 1] = next pitch prediction")
+    print(f"  - labels[:, :, 1:89] = next pitch one-hot (88 piano keys)")
     
     # Split by FILE to prevent data leakage (sequences from same file stay together)
     train_file_count = int(0.8 * num_files)
@@ -189,7 +213,7 @@ def train_multitask(use_transformer=False):
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE),
         loss=multitask_loss,
-        metrics=[hand_accuracy, pitch_mae]
+        metrics=[hand_accuracy, pitch_accuracy]
     )
     
     # Callbacks
