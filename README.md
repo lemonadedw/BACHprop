@@ -47,8 +47,15 @@ python3 preprocess.py
 
 Train the model using both datasets:
 
+**Simple Hand Classification Model:**
 ```bash
 python3 train.py
+```
+
+**Multi-Task Model (Hand + Next Pitch Prediction):**
+```bash
+python3 train.py --multitask              # LSTM model
+python3 train.py --multitask --transformer # Transformer model
 ```
 
 **Note:** Run preprocessing first to generate POP909 fingering files before training.
@@ -57,4 +64,23 @@ The training script:
 - Loads data from both PianoFingeringDataset and POP909 datasets
 - Combines ~150 expert-annotated files + 909 POP909 files = ~1059 total files
 - Splits data 80/20 for training and validation (by file to prevent leakage)
-- Trains a sequence model to predict hand assignment (left/right) for piano notes
+- Simple model: Predicts hand assignment (left/right) for piano notes
+- Multi-task model: Predicts both hand assignment AND next note's pitch
+
+### Interactive Keyboard
+
+Play piano on your keyboard and let AI predict what comes next:
+
+```bash
+# Interactive keyboard (auto-selects available model)
+python3 interactive_keyboard.py
+
+# Choose specific model
+python3 interactive_keyboard.py --lstm
+python3 interactive_keyboard.py --transformer
+
+# MIDI file prediction
+python3 quick_predict.py static/bach.mid
+```
+
+All controls and instructions are shown in the GUI.

@@ -40,6 +40,30 @@ class PIGDataLoader:
         print(f"Created {len(self.data)} sequences from {len(self.file_paths)} files.")
         print(f"Data shape: {self.data.shape}")
         print(f"Labels shape: {self.labels.shape}")
+    
+    def get_multitask_labels(self):
+        """
+        Create multi-task labels: [hand, next_pitch]
+        Returns labels of shape (batch, seq, 2) where:
+        - labels[:, :, 0] = hand classification (0=right, 1=left)
+        - labels[:, :, 1] = next note's pitch (0-1 normalized)
+        """
+        batch_size, seq_len, _ = self.labels.shape
+        multitask_labels = np.zeros((batch_size, seq_len, 2), dtype=np.float32)
+        
+        # Hand labels (already have these)
+        multitask_labels[:, :, 0] = self.labels[:, :, 0]
+        
+        # Next pitch labels - extract from the data (pitch is first feature)
+        # For each note at position i, the target is the pitch of note at i+1
+        for i in range(batch_size):
+            for j in range(seq_len - 1):
+                # Next pitch is already normalized in data (pitch / 128.0)
+                multitask_labels[i, j, 1] = self.data[i, j+1, 0]
+            # For last note in sequence, use same pitch as target (or could use 0)
+            multitask_labels[i, seq_len-1, 1] = self.data[i, seq_len-1, 0]
+        
+        return multitask_labels
 
     def _parse_file(self, file_path):
         notes = []
