@@ -2,6 +2,8 @@
 __pycache__/
 *.pyc
 .venv/
+webscraper/downloads
+
 
 # System
 .DS_Store
