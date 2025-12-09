@@ -1,0 +1,23 @@
+Comparison of Models 
+
+SEED: 190273
+
+CNN: 
+- Evaluation Accuracy: 92.58
+- Vivaldi-Summer: 72.66
+
+Bidirection LSTM:
+- Evaluation Accuracy: 92.41
+- Vivaldi-Summer: 71.82
+
+LSTM:
+- Evaluation Accuracy: 91.16
+- Vivaldi-Summer: 78.21
+
+MLP:
+- Evaluation Accuracy: 85.22
+- Vivaldi-Summer: 79.85
+
+Attention:
+- Evaluation Accuracy: 91.41
+- Vivaldi-Summer: 74.65

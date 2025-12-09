@@ -2,6 +2,8 @@ import tensorflow as tf
 import pretty_midi
 import numpy as np
 import argparse
+# Import custom layer so it can be deserialized when loading saved models
+from model import PositionalEncoding
 
 def predict(midi_path, output_path, model_path='best_model.keras'):
     # Load Model
